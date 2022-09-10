@@ -5,6 +5,7 @@
 #define __USE_POSIX
 #endif
 #include <signal.h>
+#include <errno.h>
 
 #define sys_assert(result, msg, ...)                                \
     do {                                                            \
@@ -27,19 +28,24 @@
         }                                                           \
     } while(false)
 
-#define sys_goto(result, point, msg, ...)                           \
-    do {                                                            \
-        if (result < 0) {                                           \
-            _sys_warning(__FILE__, __LINE__, msg, ##__VA_ARGS__);   \
-            goto point;                                             \
-        }                                                           \
+#define sys_goto(result, point, msg, ...)                               \
+    do {                                                                \
+        if (result < 0) {                                               \
+            if (errno != EXIT_SUCCESS) {                                \
+                _sys_warning(__FILE__, __LINE__, msg, ##__VA_ARGS__);   \
+            }                                                           \
+            goto point;                                                 \
+        }                                                               \
     } while(false)
 
-#define sys_return(result, value)                                   \
-    do {                                                            \
-        if (result < 0) {                                           \
-            return value;                                           \
-        }                                                           \
+#define sys_return(result, value, msg, ...)                             \
+    do {                                                                \
+        if (result < 0) {                                               \
+            if (errno != EXIT_SUCCESS) {                                \
+                _sys_warning(__FILE__, __LINE__, msg, ##__VA_ARGS__);   \
+            }                                                           \
+            return value;                                               \
+        }                                                               \
     } while(false)
 
 #define mem_return(ptr, value)                                      \
@@ -66,7 +72,18 @@
         break;                                                      \
     } (void)ptr
 
+#define user_break(cond)                                            \
+    if (cond) {                                                     \
+        break;                                                      \
+    } (void)result
+
+#define user_continue(cond)                                         \
+    if (cond) {                                                     \
+        continue;                                                   \
+    } (void)result
+
 extern char * env[];
+extern int maxfd;
 
 void _sys_assert(const char * const file, const unsigned line, const char * const msg, ...);
 void _sys_warning(const char * const file, const unsigned line, const char * const msg, ...);

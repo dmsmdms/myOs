@@ -17,14 +17,18 @@
 #define __USE_XOPEN_EXTENDED
 #endif
 #include <stdlib.h>
+#include <syslog.h>
 #include <fcntl.h>
 #include <ctype.h>
-#include <errno.h>
 
 #define TELNET_SERVICE_NAME "telnet.service"
 #define LOGIN_PATH_DEFAULT  "/bin/bash"
 #define TELNET_BUFFER_SIZE  4072
+#ifndef EMUL
 #define TELNET_PORT_DEFAULT 23
+#else
+#define TELNET_PORT_DEFAULT 2323
+#endif
 #define TELNET_LISTEN_SIZE  1
 #define TTY_NAME_SIZE       32
 #define INVALID_RESULT      -1
@@ -53,7 +57,6 @@ static fd_set rdfdset = { 0 };
 static fd_set wrfdset = { 0 };
 static int master_fd = INVALID_FD;
 static int client_fd = INVALID_FD;
-static int maxfd = 0;
 
 static void real_free_session(session_t * const restrict session) {
     const pid_t shell_pid = session->shell_pid;

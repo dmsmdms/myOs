@@ -20,14 +20,18 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <syslog.h>
 #include <stdio.h>
-#include <errno.h>
 #include <netdb.h>
 #include <time.h>
 
+#define INIT_SERVICE_NAME       "init.service"
 #define HOME_DIR_KEY            "HOME"
 #define HOME_DIR_DEFAULT        "/root"
+#define TERM_KEY                "TERM"
+#define TERM_DEFAULT            "xterm-256color"
 #define MAX_ENV_LENGTH          128
+#define MAX_LOG_SIZE            512
 #define ACCESS_MODE_DEFAULT     (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH)
 #define PROC_FS_NAME            "proc"
 #define PROC_FS_DIR             "/proc"
@@ -38,6 +42,8 @@
 #define IP_MASK_DEFAULT         "255.255.255.0"
 #define IP_ROUTE_DEFAULT        "192.168.1.1"
 #define IP_BROADCAST_DEFAULT    "192.168.1.255"
+#define IP_INIT_INTERVAL        (250 * 1000)
+#define IP_INIT_TIMEOUT         (1000 * 1000)
 #define HOSTENT_BUF_SIZE        1024
 #define NTP_MODE                0x1b
 #define NTP_PORT                123
@@ -66,11 +72,15 @@ typedef struct __attribute__((packed)) {
 
 enum {
     ENV_IDX_HOME,
+    ENV_IDX_TERM,
+    ENV_IDX_NULL,
     ENV_IDX_MAX,
 };
 
 char * env[ENV_IDX_MAX] = { NULL };
+int maxfd = STDERR_FILENO;
 static const char * home_dir = HOME_DIR_DEFAULT;
+static const char * term = TERM_DEFAULT;
 static char * net_dev = NET_DEV_DEFAULT;
 static const char * ip_addr = IP_ADDR_DEFAULT;
 static const char * ip_mask = IP_MASK_DEFAULT;
@@ -90,35 +100,47 @@ static void deinit(void) {
         close(file_fd);
         file_fd = INVALID_FD;
     }
+
+    closelog();
+}
+
+static void syslog_print(const char * const file, const unsigned line, const int log_level,
+                         const char * const msg, va_list args)
+{
+    char buffer[MAX_LOG_SIZE], * buf = buffer;
+    buf += sprintf(buf, "%s:%u errno - %s", file, line, strerror(errno));
+
+    if (msg != NULL) {
+        static char msg_str[] = ", msg - ";
+        memcpy(buf, msg_str, sizeof(msg_str) - 1);
+
+        buf += sizeof(msg_str) - 1;
+        buf += vsprintf(buf, msg, args);
+    }
+
+    *buf++ = '\n';
+    *buf++ = '\0';
+
+    syslog(log_level, "%s", buffer);
 }
 
 void _sys_assert(const char * const file, const unsigned line, const char * const msg, ...) {
-    fprintf(stderr, "ERROR: %s:%u errno - %s", file, line, strerror(errno));
+    va_list args;
+    va_start(args, msg);
 
-    if (msg != NULL) {
-        va_list args;
-        va_start(args, msg);
-        fprintf(stderr, ", msg - ");
-        vfprintf(stderr, msg, args);
-        va_end(args);
-    }
+    syslog_print(file, line, LOG_ERR, msg, args);
 
-    fputc('\n', stderr);
+    va_end(args);
     exit(EXIT_FAILURE);
 }
 
 void _sys_warning(const char * const file, const unsigned line, const char * const msg, ...) {
-    fprintf(stderr, "WARNING: %s:%u errno - %s", file, line, strerror(errno));
+    va_list args;
+    va_start(args, msg);
 
-    if (msg != NULL) {
-        va_list args;
-        va_start(args, msg);
-        fprintf(stderr, ", msg - ");
-        vfprintf(stderr, msg, args);
-        va_end(args);
-    }
+    syslog_print(file, line, LOG_WARNING, msg, args);
 
-    fputc('\n', stderr);
+    va_end(args);
 }
 
 static void parse_cmdline(const int argc, char ** const argv) {
@@ -164,7 +186,7 @@ static void parse_cmdline(const int argc, char ** const argv) {
     }
 }
 
-#ifndef __x86_64__
+#ifndef EMUL
 static void mount_all(void) {
     int result = mount(PROC_FS_NAME, PROC_FS_DIR, PROC_FS_NAME, 0, NULL);
     sys_assert(result, NULL);
@@ -180,16 +202,29 @@ static void init_ip(void) {
     if (socket_fd < 0) {
         socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         sys_assert(socket_fd, NULL);
+
+        if (socket_fd > maxfd) {
+            maxfd = socket_fd;
+        }
     }
 
     struct ifreq ifreq = {};
     strcpy(ifreq.ifr_name, net_dev);
 
-    int result = ioctl(socket_fd, SIOCGIFFLAGS, &ifreq);
-    sys_assert(result, NULL);
-    ifreq.ifr_flags |= IFF_UP;
+    for (unsigned timeout = 0; timeout < (IP_INIT_TIMEOUT / IP_INIT_INTERVAL); timeout++) {
+        int result = ioctl(socket_fd, SIOCGIFFLAGS, &ifreq);
+        user_break(result == EXIT_SUCCESS);
 
-    result = ioctl(socket_fd, SIOCSIFFLAGS, &ifreq);
+        if (errno != ENODEV) {
+            sys_assert(result, NULL);
+        }
+
+        result = usleep(IP_INIT_INTERVAL);
+        sys_assert(result, NULL);
+    }
+
+    ifreq.ifr_flags |= IFF_UP;
+    int result = ioctl(socket_fd, SIOCSIFFLAGS, &ifreq);
     sys_assert(result, NULL);
     ifreq.ifr_flags = 0;
 
@@ -254,6 +289,10 @@ static void update_time(void) {
     if (socket_fd < 0) {
         socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         sys_assert(socket_fd, NULL);
+
+        if (socket_fd > maxfd) {
+            maxfd = socket_fd;
+        }
     }
 
     result = connect(socket_fd, (struct sockaddr *)&sockaddr, sizeof(sockaddr));
@@ -274,19 +313,19 @@ static void update_time(void) {
         .tv_usec = 0,
     };
 
-#ifndef __x86_64__
+#ifndef EMUL
     result = settimeofday(&timeval, NULL);
     sys_assert(result, NULL);
 #else
-    fprintf(stderr, "TIME: %s\n", ctime(&timeval.tv_sec));
+    _sys_warning(__FILE__, __LINE__, "%s", ctime(&timeval.tv_sec));
 #endif
 }
 
-_Noreturn static void exit_handler(const int code __attribute_maybe_unused__) {
+_Noreturn static void exit_handler(const int code __attribute__((unused))) {
     exit(EXIT_FAILURE);
 }
 
-static void sigchild_handler(const int code __attribute_maybe_unused__) {
+static void sigchild_handler(const int code __attribute__((unused))) {
     while (true) {
         const pid_t pid = waitpid(INVALID_PID, NULL, WNOHANG);
 
@@ -298,16 +337,38 @@ static void sigchild_handler(const int code __attribute_maybe_unused__) {
     }
 }
 
-#ifndef __x86_64__
+#ifndef EMUL
 static void init_env(void) {
     static char home_env[MAX_ENV_LENGTH];
     snprintf(home_env, sizeof(home_env), "%s=%s", HOME_DIR_KEY, home_dir);
     env[ENV_IDX_HOME] = home_env;
+
+    static char term_env[MAX_ENV_LENGTH];
+    snprintf(term_env, sizeof(term_env), "%s=%s", TERM_KEY, term);
+    env[ENV_IDX_TERM] = term_env;
 }
 #endif
 
-static void init_app(void) {
-    int result = atexit(deinit);
+static void set_proc_name(char * const proc_name, const char * const name) {
+    memset(proc_name, '\0', strlen(proc_name));
+    strcpy(proc_name, name);
+}
+
+static void syslog_open(const char * const proc_name) {
+    openlog(proc_name, LOG_CONS, LOG_DAEMON);
+}
+
+static void init_app(char * const proc_name) {
+    set_proc_name(proc_name, INIT_SERVICE_NAME);
+    syslog_open(proc_name);
+
+    int result = fclose(stderr);
+    sys_assert(result, NULL);
+
+    maxfd = STDOUT_FILENO;
+    stderr = NULL;
+
+    result = atexit(deinit);
     sys_assert(result, NULL);
 
     result = atexit(deinit_telnet);
@@ -334,24 +395,28 @@ pid_t do_fork(char * const proc_name, const char * const name) {
     sys_assert(pid, NULL);
 
     if (pid == EXIT_SUCCESS) {
+        for(int fd = 0; fd <= maxfd; fd++) {
+            close(fd);
+        }
+
+        set_proc_name(proc_name, name);
+        syslog_open(proc_name);
+
         const int result = prctl(PR_SET_PDEATHSIG, SIGHUP);
         sys_assert(result, NULL);
-
-        memset(proc_name, '\0', strlen(proc_name));
-        strcpy(proc_name, name);
     }
 
     return pid;
 }
 
 int main(const int argc, char ** const argv) {
-    init_app();
+    init_app(argv[0]);
     parse_cmdline(argc, argv);
 
-#ifndef __x86_64__
+#ifndef EMUL
     mount_all();
-    init_ip();
     init_env();
+    init_ip();
 #endif
 
     update_time();
