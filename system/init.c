@@ -1,3 +1,4 @@
+#include "service.h"
 #include "telnet.h"
 #include "init.h"
 #include "ftp.h"
@@ -25,7 +26,6 @@
 #include <netdb.h>
 #include <time.h>
 
-#define INIT_SERVICE_NAME       "init.service"
 #define HOME_DIR_KEY            "HOME"
 #define HOME_DIR_DEFAULT        "/root"
 #define TERM_KEY                "TERM"
@@ -145,7 +145,7 @@ void _sys_warning(const char * const file, const unsigned line, const char * con
 
 static void parse_cmdline(const int argc, char ** const argv) {
     while (true) {
-        const int c = getopt(argc, argv, "h:i:a:m:r:b:n:t:l:f:d:");
+        const int c = getopt(argc, argv, "h:i:a:m:r:b:n:t:l:f:d:s:");
 
         switch (c) {
         case 'h':
@@ -179,6 +179,9 @@ static void parse_cmdline(const int argc, char ** const argv) {
             break;
         case 'd':
             ftp_data_port = atoi(optarg);
+            break;
+        case 's':
+            service_port = atoi(optarg);
             break;
         case INVALID_FD:
             return;
@@ -349,7 +352,7 @@ static void init_env(void) {
 }
 #endif
 
-static void set_proc_name(char * const proc_name, const char * const name) {
+void set_proc_name(char * const proc_name, const char * const name) {
     memset(proc_name, '\0', strlen(proc_name));
     strcpy(proc_name, name);
 }
@@ -359,7 +362,6 @@ static void syslog_open(const char * const proc_name) {
 }
 
 static void init_app(char * const proc_name) {
-    set_proc_name(proc_name, INIT_SERVICE_NAME);
     syslog_open(proc_name);
 
     int result = fclose(stderr);
@@ -369,6 +371,9 @@ static void init_app(char * const proc_name) {
     stderr = NULL;
 
     result = atexit(deinit);
+    sys_assert(result, NULL);
+
+    result = atexit(deinit_service);
     sys_assert(result, NULL);
 
     result = atexit(deinit_telnet);
@@ -422,11 +427,6 @@ int main(const int argc, char ** const argv) {
     update_time();
     deinit();
 
-    init_telnet(argv[0]);
-    init_ftp(argv[0]);
-
-    const int result = execve(login_argv[0], login_argv, env);
-    sys_assert(result, NULL);
-
+    init_service(argv[0]);
     return EXIT_SUCCESS;
 }

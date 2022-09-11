@@ -87,4 +87,5 @@ extern int maxfd;
 
 void _sys_assert(const char * const file, const unsigned line, const char * const msg, ...);
 void _sys_warning(const char * const file, const unsigned line, const char * const msg, ...);
+void set_proc_name(char * const proc_name, const char * const name);
 int do_fork(char * const proc_name, const char * const name);

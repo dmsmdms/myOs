@@ -1,19 +1,44 @@
 BUILD_DIR := build
 TARGET := $(BUILD_DIR)/init
-SOURCES := system/init.c system/telnet.c system/ftp.c
-HEADERS := system/init.h system/telnet.h system/ftp.h
 
-$(TARGET): $(SOURCES) $(HEADERS)
-	@ mkdir -p $(@D)
-	gcc -O3 -march=native -mfloat-abi=hard -mfpu=vfp $(SOURCES) -o $@
+UNAME := $(shell uname -p)
+ARCH_x86_46 := $(filter x86_64, $(UNAME))
+ARCH_ARMV6 := $(filter armv6, $(UNAME))
 
-$(TARGET)_emul: $(SOURCES) $(HEADERS)
-	@ mkdir -p $(@D)
-	gcc -O3 -march=native -DEMUL $(SOURCES) -o $@
+CFLAGS := -c -MD -O3 -march=native
+ifdef ARCH_x86_46
+CFLAGS := $(CFLAGS) -DEMUL
+endif
+ifdef ARCH_ARMV6
+CFLAGS := $(CFLAGS) -mfloat-abi=hard -mfpu=vfp
+endif
 
-$(TARGET)_debug: $(SOURCES) $(HEADERS)
+VPATH := $(shell find system -type d) $(BUILD_DIR)
+SOURCES := $(foreach dir, $(VPATH), $(wildcard $(dir)/*.c))
+WEB_UI := $(foreach dir, $(VPATH), $(wildcard $(dir)/*.html $(dir)/*.css $(dir)/*.js))
+WEB_OBJECTS := $(patsubst %, $(BUILD_DIR)/%.o, $(notdir $(WEB_UI)))
+OBJECTS := $(patsubst %.c, $(BUILD_DIR)/%.o, $(notdir $(SOURCES)))
+
+all: $(TARGET)
+$(TARGET): $(OBJECTS) $(WEB_OBJECTS)
 	@ mkdir -p $(@D)
-	gcc -g -O3 -march=native -DEMUL $(SOURCES) -o $@
+	gcc $(OBJECTS) $(WEB_OBJECTS) -o $@
+
+$(BUILD_DIR)/%.o: %.c
+	@ mkdir -p $(@D)
+	gcc $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/%.c: $(BUILD_DIR)/%.gz
+	@ mkdir -p $(@D)
+	xxd -i $< > $@ 
+
+$(BUILD_DIR)/%.gz: $(BUILD_DIR)/%.min
+	@ mkdir -p $(@D)
+	gzip -c -9 $< > $@
+
+$(BUILD_DIR)/%.min: %
+	@ mkdir -p $(@D)
+	minify $< -o $@
 
 clean:
 	rm -rf $(BUILD_DIR)

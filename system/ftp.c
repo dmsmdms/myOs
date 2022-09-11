@@ -125,7 +125,7 @@ typedef struct {
     io_callback_t data_wr_callback;
     status_t status;
     uint_fast8_t cmd_len;
-} ftp_command_t;
+} command_t;
 
 typedef struct {
     const char * str;
@@ -157,7 +157,7 @@ static int send_response_cdup(session_t * const restrict session);
 static int send_response_retr_data(session_t * const restrict session);
 static int send_response_stor_data(session_t * const restrict session);
 
-static const ftp_command_t commands[] = {
+static const command_t commands[] = {
     MAKE_CMD("USER", send_response_simple, NULL, NULL, STATUS_230),
     MAKE_CMD("SYST", send_response_simple, NULL, NULL, STATUS_215),
     MAKE_CMD("FEAT", send_response_feat, NULL, NULL, STATUS_211),
@@ -223,7 +223,7 @@ static int recv_command(session_t * const restrict session) {
     user_return(result < 0 && errno == EINTR, EXIT_SUCCESS);
 
     for (uint_fast8_t i = 0; i < ARRAY_LENGTH(commands); i++) {
-        const ftp_command_t * const restrict command = commands + i;
+        const command_t * const restrict command = commands + i;
         if (memcmp(buffer, command->cmd, command->cmd_len) == EXIT_SUCCESS) {
             int i = command->cmd_len + 1;
             char * restrict arg = session->recv_arg;
@@ -240,10 +240,12 @@ static int recv_command(session_t * const restrict session) {
             session->data_rd_callback = command->data_rd_callback;
             session->data_wr_callback = command->data_wr_callback;
             session->status = command->status;
+
+            return EXIT_SUCCESS;
         }
     }
 
-    return EXIT_SUCCESS;
+    return INVALID_RESULT;
 }
 
 static int send_response_simple(session_t * const restrict session) {
