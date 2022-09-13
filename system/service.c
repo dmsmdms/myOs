@@ -10,6 +10,13 @@
 #include <string.h>
 #include <fcntl.h>
 
+extern const uint8_t service_html_gz[];
+extern const uint8_t service_css_gz[];
+extern const uint8_t service_js_gz[];
+extern const unsigned service_html_gz_len;
+extern const unsigned service_css_gz_len;
+extern const unsigned service_js_gz_len;
+
 #define MONITOR_SERVICE_NAME    "monitor.service"
 #ifndef EMUL
 #define SERVICE_PORT_DEFAULT    80
@@ -28,8 +35,25 @@
 #define MAKE_CMD(cmd, wr_callback) \
     { cmd, wr_callback, sizeof(cmd) - 1 }
 
+#define MAKE_FILE(name, data, type) \
+    { name, data, &data##_len, type }
+
+#define CASE_CODE_STR(code, str) \
+    case code: return str
+
 #define ARRAY_LENGTH(arr) \
     (sizeof(arr) / sizeof(arr[0]))
+
+typedef enum {
+    STATUS_200,
+    STATUS_404,
+} status_t;
+
+typedef enum {
+    MIME_TYPE_HTML,
+    MIME_TYPE_CSS,
+    MIME_TYPE_JS,
+} mime_type_t;
 
 typedef struct session session_t;
 typedef int (* io_callback_t)(session_t * const restrict);
@@ -51,6 +75,13 @@ typedef struct {
     uint_fast8_t cmd_len;
 } command_t;
 
+typedef struct {
+    char name[MAX_PATH_LENGHT];
+    const uint8_t * data;
+    const unsigned * size;
+    mime_type_t type;
+} file_t;
+
 uint16_t service_port = SERVICE_PORT_DEFAULT;
 static session_t * sessions = NULL;
 static fd_set rdfdset = { 0 };
@@ -63,6 +94,12 @@ static int send_file(session_t * const restrict session);
 
 static command_t commands[] = {
     MAKE_CMD("info", send_info),
+};
+
+static file_t files[] = {
+    MAKE_FILE("service.html", service_html_gz, MIME_TYPE_HTML),
+    MAKE_FILE("service.css", service_css_gz, MIME_TYPE_CSS),
+    MAKE_FILE("service.js", service_js_gz, MIME_TYPE_JS),
 };
 
 static int recv_command(session_t * const restrict session) {
@@ -104,19 +141,36 @@ static int recv_command(session_t * const restrict session) {
     return INVALID_RESULT;
 }
 
+static const char * get_status_str(const status_t status) {
+
+}
+
+static void make_header(char * const buffer, const unsigned size, const status_t status,
+                        const unsigned content_length)
+{
+
+}
+
 static int send_info(session_t * const restrict session) {
 
 }
 
 static int send_file(session_t * const restrict session) {
-    if (session->file < 0) {
-        const int file = open(session->arg, O_RDONLY);
-        sys_return(file, INVALID_RESULT, NULL);
-        session->file = file;
-    }
-
+    const file_t * restrict file = NULL;
     char buffer[SERVICE_BUFFER_SIZE];
 
+    for (uint_fast8_t i = 0; i < ARRAY_LENGTH(files); i++) {
+        const file_t * const restrict tmp_file = files + i;
+
+        if (strcmp(session->arg, tmp_file->name) == EXIT_SUCCESS) {
+            file = tmp_file;
+            break;
+        }
+    }
+
+    if (file != NULL) {
+
+    }
 }
 
 static void real_free_session(session_t * const restrict session) {

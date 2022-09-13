@@ -57,46 +57,17 @@
     (sizeof(arr) / sizeof(arr[0]))
 
 typedef enum {
-    STATUS_110,
-    STATUS_120,
-    STATUS_125,
     STATUS_150,
     STATUS_200,
-    STATUS_202,
     STATUS_211,
-    STATUS_212,
-    STATUS_213,
-    STATUS_214,
     STATUS_215,
     STATUS_220,
-    STATUS_221,
-    STATUS_225,
     STATUS_226,
     STATUS_227,
-    STATUS_229,
     STATUS_230,
     STATUS_250,
     STATUS_257,
-    STATUS_331,
-    STATUS_332,
-    STATUS_350,
-    STATUS_421,
-    STATUS_425,
-    STATUS_426,
-    STATUS_450,
-    STATUS_451,
-    STATUS_452,
-    STATUS_500,
-    STATUS_501,
-    STATUS_502,
-    STATUS_503,
-    STATUS_504,
-    STATUS_530,
-    STATUS_532,
     STATUS_550,
-    STATUS_551,
-    STATUS_552,
-    STATUS_553,
 } status_t;
 
 typedef struct session session_t;
@@ -173,47 +144,20 @@ static const command_t commands[] = {
 
 static status_str_t get_status_str(const status_t status) {
     switch (status) {
-        MAKE_STATUS_STR(110, "Restart marker reply.");
-        MAKE_STATUS_STR(120, "Service ready in %d minutes.");
-        MAKE_STATUS_STR(125, "Data connection already open; transfer starting.");
         MAKE_STATUS_STR(150, "File status okay; about to open data connection.");
         MAKE_STATUS_STR(200, "Command okay.");
-        MAKE_STATUS_STR(202, "Command not implemented, superfluous at this site.");
         MAKE_STATUS_STR(211, "System status, or system help reply.");
-        MAKE_STATUS_STR(212, "Directory status.");
-        MAKE_STATUS_STR(213, "File status.");
-        MAKE_STATUS_STR(214, "Help message.");
         MAKE_STATUS_STR(215, "UNIX Type: L8");
         MAKE_STATUS_STR(220, "Service ready for new user.");
-        MAKE_STATUS_STR(221, "Service closing control connection.");
-        MAKE_STATUS_STR(225, "Data connection open; no transfer in progress.");
         MAKE_STATUS_STR(226, "Closing data connection.");
         MAKE_STATUS_STR(227, "Entering Passive Mode (%d,%d,%d,%d,%d,%d).");
-        MAKE_STATUS_STR(229, "Entering Extended Passive Mode (|||%d|).");
         MAKE_STATUS_STR(230, "User logged in, proceed.");
         MAKE_STATUS_STR(250, "Requested file action okay, completed.");
-        MAKE_STATUS_STR(257, "\"%s\" created.");
-        MAKE_STATUS_STR(331, "User name okay, need password.");
-        MAKE_STATUS_STR(332, "Need account for login.");
-        MAKE_STATUS_STR(350, "Requested file action pending further information.");
-        MAKE_STATUS_STR(421, "Service not available, closing control connection.");
-        MAKE_STATUS_STR(425, "Can't open data connection.");
-        MAKE_STATUS_STR(426, "Connection closed; transfer aborted.");
-        MAKE_STATUS_STR(450, "Requested file action not taken. File unavailable (e.g., file busy).");
-        MAKE_STATUS_STR(451, "Requested action aborted: local error in processing.");
-        MAKE_STATUS_STR(452, "Requested action not taken. Insufficient storage space in system.");
-        MAKE_STATUS_STR(500, "Syntax error, command unrecognized. This may include errors such as command line too long.");
-        MAKE_STATUS_STR(501, "Syntax error in parameters or arguments.");
-        MAKE_STATUS_STR(502, "Command not implemented.");
-        MAKE_STATUS_STR(503, "Bad sequence of commands.");
-        MAKE_STATUS_STR(504, "Command not implemented for that parameter.");
-        MAKE_STATUS_STR(530, "Not logged in.");
-        MAKE_STATUS_STR(532, "Need account for storing files.");
+        MAKE_STATUS_STR(257, "\"%s\"");
         MAKE_STATUS_STR(550, "Requested action not taken. File unavailable (e.g., file not found, no access).");
-        MAKE_STATUS_STR(551, "Requested action aborted: page type unknown.");
-        MAKE_STATUS_STR(552, "Requested file action aborted. Exceeded storage allocation (for current directory or dataset).");
-        MAKE_STATUS_STR(553, "Requested action not taken. File name not allowed.");
     }
+
+    return (status_str_t){ NULL, 0 };
 }
 
 static int recv_command(session_t * const restrict session) {
@@ -281,7 +225,8 @@ static int send_response_feat(session_t * const restrict session) {
 
 static int send_response_pwd(session_t * const restrict session) {
     char buffer[FTP_BUFFER_SIZE];
-    int buffer_length = snprintf(buffer, sizeof(buffer), "257 \"%s\"\r\n", session->directory);
+    const status_str_t response = get_status_str(session->status);
+    int buffer_length = snprintf(buffer, sizeof(buffer), response.str, session->directory);
 
     const int result = send(session->socket, buffer, buffer_length, MSG_NOSIGNAL);
     user_return(result != buffer_length, INVALID_RESULT);
